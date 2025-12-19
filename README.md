@@ -26,7 +26,7 @@ canvas{ display:block; background:#1a1a1a; border:3px solid #333;}
 <div id="victoryOverlay" class="game-overlay">
   <div class="overlay-content">
     <h2 style="color:#FFD700;">ПОБЕДА!</h2>
-    <p>Вы победили босса!</p>
+    <p>Вы победили всех врагов!</p>
     <p>Нажмите ENTER для новой игры</p>
   </div>
 </div>
@@ -79,7 +79,20 @@ function update(){
 
     // Обновляем пули
     bullets.forEach(b=>{ b.x+=b.dx; b.y+=b.dy; });
-    bullets=bullets.filter(b=>b.x>-50 && b.x<850 && b.y>-50 && b.y<650 && b.alive);
+
+    // Проверка попадания пули по врагам
+    bullets.forEach(b=>{
+        enemies.forEach(e=>{
+            const dist=Math.sqrt((b.x-e.x)**2 + (b.y-e.y)**2);
+            if(dist < b.size + e.size && b.alive){
+                e.hp -= player.damage;
+                b.alive = false;
+            }
+        });
+    });
+
+    // Удаляем "мертвые" пули
+    bullets = bullets.filter(b=>b.x>-50 && b.x<850 && b.y>-50 && b.y<650 && b.alive);
 
     // Обновляем врагов
     enemies.forEach(e=>{
@@ -88,6 +101,15 @@ function update(){
         const collision=Math.sqrt((player.x-e.x)**2+(player.y-e.y)**2);
         if(collision<player.size+e.size && player.invuln===0){ player.hp--; player.invuln=60; }
     });
+
+    // Удаляем врагов с HP <= 0
+    enemies = enemies.filter(e=>e.hp>0);
+
+    // Если враги закончились — победа
+    if(enemies.length === 0 && !bossDefeated){
+        bossDefeated = true;
+        victoryOverlay.style.display = 'flex';
+    }
 }
 
 // Рисуем сцену
