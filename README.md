@@ -69,6 +69,7 @@ function startGame(){
  localStorage.removeItem("save");
  state="game";
  document.getElementById("menu").style.display="none";
+ room=1;
  spawnRoom();
 }
 
@@ -78,6 +79,7 @@ function continueGame(){
  Object.assign(player,JSON.parse(d));
  state="game";
  document.getElementById("menu").style.display="none";
+ room=JSON.parse(localStorage.getItem("room"))||1;
  spawnRoom();
 }
 
@@ -87,11 +89,15 @@ let room=1,MAX_ROOMS=6;
 
 function spawnRoom(){
  enemies=[];bullets=[];boss=null;roomItem=null;
+
  if(room===MAX_ROOMS){
   boss={x:450,y:300,hp:60,maxHp:60,size:36};
  }else{
-  for(let i=0;i<4;i++)
-   enemies.push({x:rnd()*800+50,y:rnd()*500+50,hp:4,size:18});
+  const types=['fast','slow','tank'];
+  for(let i=0;i<4;i++){
+   const t=types[Math.floor(rnd()*types.length)];
+   enemies.push({x:rnd()*800+50,y:rnd()*500+50,hp:t==='tank'?6:4,size:t==='tank'?22:18,speed:t==='fast'?2:t==='slow'?1:1.5});
+  }
  }
 }
 
@@ -100,20 +106,39 @@ const K={};
 addEventListener("keydown",e=>K[e.key.toLowerCase()]=true);
 addEventListener("keyup",e=>K[e.key.toLowerCase()]=false);
 
+/* ================= SHOOT ================= */
+function shoot(dx,dy){
+ let count=1+player.mods.multi;
+ for(let i=0;i<count;i++)
+  bullets.push({x:player.x,y:player.y,dx:dx*player.tearSpeed,dy:dy*player.tearSpeed,life:60});
+}
+
 /* ================= UPDATE ================= */
 function update(){
  if(state!=="game")return;
 
+ // Движение игрока
  if(K.w)player.y-=player.speed;
  if(K.s)player.y+=player.speed;
  if(K.a)player.x-=player.speed;
  if(K.d)player.x+=player.speed;
 
- if(K.arrowup)shoot(0,-1);
- if(K.arrowdown)shoot(0,1);
- if(K.arrowleft)shoot(-1,0);
- if(K.arrowright)shoot(1,0);
+ // Чит-коды
+ if(K.z){room=MAX_ROOMS;spawnRoom();K.z=false;}
+ if(K.x){player.damage+=100;player.items.push({name:'Cheat',icon:'💥'});K.x=false;}
 
+ // Двигаем врагов к игроку
+ enemies.forEach(e=>{
+   const dx = player.x - e.x;
+   const dy = player.y - e.y;
+   const dist = Math.hypot(dx, dy);
+   if(dist>0){
+     e.x += dx/dist * e.speed;
+     e.y += dy/dist * e.speed;
+   }
+ });
+
+ // Проверка попаданий пуль по врагам и боссу
  bullets.forEach(b=>{
   b.x+=b.dx;b.y+=b.dy;b.life--;
   enemies.forEach(e=>{
@@ -128,66 +153,75 @@ function update(){
  bullets=bullets.filter(b=>b.life>0);
  enemies=enemies.filter(e=>e.hp>0);
 
+ // Спавн предмета, если комната очищена
  if(!boss&&enemies.length===0&&!roomItem){
   roomItem=ITEM_POOL[Math.floor(rnd()*ITEM_POOL.length)];
  }
 
- if(boss&&boss.hp<=0){alert("ПОБЕДА");state="menu";location.reload()}
- save();
-}
+ // Подбор предмета
+ if(roomItem&&Math.hypot(player.x-450,player.y-300)<20){
+  roomItem.apply();
+  player.items.push(roomItem);
+  room++;
+  spawnRoom();
+ }
 
-/* ================= SHOOT ================= */
-function shoot(dx,dy){
- let count=1+player.mods.multi;
- for(let i=0;i<count;i++)
-  bullets.push({x:player.x,y:player.y,dx:dx*player.tearSpeed,dy:dy*player.tearSpeed,life:60});
+ // Победа над боссом
+ if(boss&&boss.hp<=0){alert("ПОБЕДА!");state="menu";location.reload()}
+
+ save();
 }
 
 /* ================= SAVE ================= */
 function save(){
  localStorage.setItem("save",JSON.stringify(player));
+ localStorage.setItem("room",room);
 }
 
 /* ================= DRAW ================= */
 function draw(){
  ctx.clearRect(0,0,W,H);
+
  if(state!=="game")return;
 
+ // Игрок
  ctx.fillStyle="#4CAF50";
  ctx.beginPath();ctx.arc(player.x,player.y,player.size,0,6.28);ctx.fill();
 
+ // Пули
  ctx.fillStyle="gold";
  bullets.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,4,0,6.28);ctx.fill()});
 
+ // Враги
  ctx.fillStyle="#f44";
  enemies.forEach(e=>{ctx.beginPath();ctx.arc(e.x,e.y,e.size,0,6.28);ctx.fill()});
 
+ // Босс
  if(boss){
   ctx.fillStyle="#f00";
   ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();
+  // HP бар босса
   ctx.fillStyle="red";
   ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);
  }
 
+ // Предмет
  if(roomItem){
   ctx.fillStyle="white";
   ctx.font="30px Arial";
   ctx.fillText(roomItem.icon,440,300);
-  if(Math.hypot(player.x-450,player.y-300)<20){
-   roomItem.apply();
-   player.items.push(roomItem);
-   room++;
-   spawnRoom();
-  }
  }
 
+ // Панель предметов
  ctx.fillStyle="white";
+ ctx.font="20px Arial";
  ctx.fillText("Items:",20,40);
  player.items.forEach((it,i)=>{
   ctx.fillText(it.icon,20+i*30,70);
  });
 }
 
+/* ================= GAME LOOP ================= */
 function loop(){update();draw();requestAnimationFrame(loop)}
 loop();
 </script>
