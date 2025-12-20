@@ -18,6 +18,7 @@ canvas{display:block;margin:auto;background:#111;}
 <div id="minimap"></div>
 
 <script>
+// ====== CANVAS & CONSTANTS ======
 const canvas=document.getElementById("game");
 const ctx=canvas.getContext("2d");
 const W=canvas.width,H=canvas.height;
@@ -66,7 +67,7 @@ const ITEM_POOL=[
 ];
 let roomItem=null;
 
-// ====== BULLETS ======
+// ====== BULLETS (TEARS) ======
 let bullets=[];
 
 // ====== ENEMIES ======
@@ -75,20 +76,29 @@ let enemies=[],boss=null;
 // ====== DOORS ======
 let doors=[];
 
+// ====== BOSSES ======
+const BOSSES=[
+ {name:"Red Boss",hp:60,size:36,speed:1.2,color:"#f00",pattern:"bounce"},
+ {name:"Blue Boss",hp:80,size:40,speed:0.8,color:"#00f",pattern:"zigzag"},
+ {name:"Green Boss",hp:100,size:50,speed:1,color:"#0f0",pattern:"circle"}
+];
+
 // ====== SPAWN ROOM ======
 function spawnRoom(){
  enemies=[];bullets=[];boss=null;roomItem=null;doors=[];
- // случайные враги
  if(room===MAX_ROOMS){
-  boss={x:450,y:300,hp:60,maxHp:60,size:36,speed:1,dirX:1,dirY:1};
+  const b=BOSSES[Math.floor(Math.random()*BOSSES.length)];
+  boss={...b,x:450,y:300,dirX:1,dirY:1,angle:0};
  }else{
+  const types=[{hp:3,size:16,speed:1.2},{hp:4,size:18,speed:1.5},{hp:5,size:20,speed:0.8}];
   const count=2+Math.floor(Math.random()*4);
   for(let i=0;i<count;i++){
-   enemies.push({x:Math.random()*800+50,y:Math.random()*500+50,hp:4,size:18,speed:1.5});
+   const t=types[Math.floor(Math.random()*types.length)];
+   enemies.push({x:Math.random()*800+50,y:Math.random()*500+50,...t});
   }
-  // предмет
   if(Math.random()<0.5){
-   roomItem={x:Math.random()*700+100,y:Math.random()*500+50,size:16,icon:ITEM_POOL[Math.floor(Math.random()*ITEM_POOL.length)].icon};
+   const it=ITEM_POOL[Math.floor(Math.random()*ITEM_POOL.length)];
+   roomItem={x:Math.random()*700+100,y:Math.random()*500+50,size:16,icon:it.icon,apply:it.apply};
   }
 }
 
@@ -124,48 +134,61 @@ function update(){
   if(dist>0)shoot(dx/dist,dy/dist);
  }
 
- // обновление пуль
+ // update bullets
  bullets.forEach(b=>{b.x+=b.dx;b.y+=b.dy;b.life--;});
  bullets=bullets.filter(b=>b.life>0);
 
- // обновление врагов
+ // enemies
  enemies.forEach(e=>{
    const dx=player.x-e.x,dy=player.y-e.y,dist=Math.hypot(dx,dy);
    if(dist>0){e.x+=dx/dist*e.speed;e.y+=dy/dist*e.speed;}
    if(dist<player.size+e.size&&player.invuln===0){player.hp--;player.invuln=60;}
  });
+ enemies=enemies.filter(e=>e.hp>0);
 
- // попадания пуль
+ // bullets hit enemies
  bullets.forEach(b=>{
    enemies.forEach(e=>{
      if(Math.hypot(b.x-e.x,b.y-e.y)<e.size){e.hp-=player.damage;b.life=0;}
    });
    if(boss&&Math.hypot(b.x-boss.x,b.y-boss.y)<boss.size){boss.hp-=player.damage;b.life=0;}
  });
- enemies=enemies.filter(e=>e.hp>0);
 
- // движение босса
+ // boss movement patterns
  if(boss){
-  boss.x+=boss.dirX*boss.speed;
-  boss.y+=boss.dirY*boss.speed;
-  if(boss.x<boss.size||boss.x>W-boss.size)boss.dirX*=-1;
-  if(boss.y<boss.size||boss.y>H-boss.size)boss.dirY*=-1;
+   if(boss.pattern==="bounce"){
+     boss.x+=boss.dirX*boss.speed;boss.y+=boss.dirY*boss.speed;
+     if(boss.x<boss.size||boss.x>W-boss.size)boss.dirX*=-1;
+     if(boss.y<boss.size||boss.y>H-boss.size)boss.dirY*=-1;
+   } else if(boss.pattern==="zigzag"){
+     boss.x+=boss.speed*Math.cos(boss.angle);boss.y+=boss.speed*Math.sin(boss.angle);
+     boss.angle+=0.05;
+     if(boss.x<boss.size||boss.x>W-boss.size)boss.angle+=Math.PI;
+     if(boss.y<boss.size||boss.y>H-boss.size)boss.angle+=Math.PI;
+   } else if(boss.pattern==="circle"){
+     boss.angle+=0.03;boss.x=450+100*Math.cos(boss.angle);boss.y=300+100*Math.sin(boss.angle);
+   }
+   if(boss.hp<=0){alert("Босс побежден! Игра окончена.");location.reload();}
  }
 
- // подбор предмета
+ // pick up item
  if(roomItem&&Math.hypot(player.x-roomItem.x,player.y-roomItem.y)<player.size+roomItem.size){
-  player.items.push(roomItem);roomItem=null;
+  if(roomItem.apply)roomItem.apply();player.items.push(roomItem);roomItem=null;
  }
 
- // двери
+ // doors
  doors.forEach(d=>{
    if(Math.abs(player.x-(d.x+d.width/2))<player.size+d.width/2 && Math.abs(player.y-(d.y+d.height/2))<player.size+d.height/2){
-     if(enemies.length===0){ // только если комната очищена
+     if(enemies.length===0){ 
        if(d.dir==='up')roomY--; else if(d.dir==='down')roomY++; else if(d.dir==='left')roomX--; else if(d.dir==='right')roomX++;
        room++;spawnRoom();
      }
    }
  });
+
+ // cheat codes
+ if(K.z){roomX=3;roomY=3;room=MAX_ROOMS;spawnRoom();K.z=false;}
+ if(K.x){player.damage+=100;for(let i=0;i<100;i++){player.items.push({icon:"⭐"});}K.x=false;}
 }
 
 // ====== DRAW ======
@@ -178,7 +201,7 @@ function draw(){
  // enemies
  ctx.fillStyle="#f44";enemies.forEach(e=>{ctx.beginPath();ctx.arc(e.x,e.y,e.size,0,6.28);ctx.fill();});
  // boss
- if(boss){ctx.fillStyle="#f00";ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();ctx.fillStyle="red";ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);}
+ if(boss){ctx.fillStyle=boss.color;ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();ctx.fillStyle="red";ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);}
  // room item
  if(roomItem){ctx.fillStyle="white";ctx.font="30px Arial";ctx.fillText(roomItem.icon,roomItem.x-15,roomItem.y+10);}
  // doors
