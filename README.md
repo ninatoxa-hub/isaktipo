@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Isaac Deluxe Full</title>
+<title>Isaac Deluxe Enhanced</title>
 <style>
 body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block;margin:auto;background:#111}
@@ -26,7 +26,7 @@ button,input{font-size:20px;padding:10px 20px}
 <body>
 
 <div id="menu">
-<h1>ISAAC DELUXE</h1>
+<h1>ISAAC DELUXE ENHANCED</h1>
 <input id="seedInput" placeholder="SEED (optional)">
 <button onclick="startGame()">NEW GAME</button>
 <button onclick="continueGame()">CONTINUE</button>
@@ -50,6 +50,7 @@ let state="menu";
 
 /* ================= AUDIO ================= */
 const audioContext=new (window.AudioContext||window.webkitAudioContext)();
+let bgMusic=null;
 function playSound(freq,duration=0.2,type='sine',volume=0.3){
  const osc=audioContext.createOscillator();
  const gain=audioContext.createGain();
@@ -91,6 +92,7 @@ function startGame(){
  generateMap();
  spawnRoom();
  updateMinimap();
+ playBgMusic();
 }
 
 function continueGame(){
@@ -105,6 +107,19 @@ function continueGame(){
  generateMap();
  spawnRoom();
  updateMinimap();
+ playBgMusic();
+}
+
+/* ================= BACKGROUND MUSIC ================= */
+function playBgMusic(){
+ if(bgMusic)bgMusic.stop();
+ const osc=audioContext.createOscillator();
+ const gain=audioContext.createGain();
+ osc.type='sine';osc.frequency.setValueAtTime(220,audioContext.currentTime);
+ gain.gain.setValueAtTime(0.05,audioContext.currentTime);
+ osc.connect(gain);gain.connect(audioContext.destination);
+ osc.start();
+ bgMusic=osc;
 }
 
 /* ================= MAP ================= */
@@ -119,18 +134,21 @@ function generateMap(){
 }
 
 /* ================= ROOM ================= */
-let enemies=[],bullets=[],boss=null;
+let enemies=[],bullets=[],boss=null,doors=[];
 
 function spawnRoom(){
- enemies=[];bullets=[];boss=null;roomItem=null;
+ enemies=[];bullets=[];boss=null;roomItem=null;doors=[];
 
  if(room===MAX_ROOMS){
-  boss={x:450,y:300,hp:60,maxHp:60,size:36,type:["fire","poison","normal"][Math.floor(rnd()*3)]};
+  const types=['fire','poison','ice'];
+  const t=types[Math.floor(rnd()*types.length)];
+  boss={x:450,y:300,hp:60,maxHp:60,size:36,type:t};
   playSound(100,0.5,'triangle');
  }else{
-  const types=['fast','slow','tank'];
-  for(let i=0;i<4;i++){
-   const t=types[Math.floor(rnd()*types.length)];
+  const enemyTypes=['fast','slow','tank'];
+  const count=Math.floor(rnd()*4)+2;
+  for(let i=0;i<count;i++){
+   const t=enemyTypes[Math.floor(rnd()*enemyTypes.length)];
    enemies.push({x:rnd()*800+50,y:rnd()*500+50,hp:t==='tank'?6:4,size:t==='tank'?22:18,speed:t==='fast'?2:t==='slow'?1:1.5,type:t});
   }
  }
@@ -242,8 +260,10 @@ function draw(){
 
  if(state!=="game")return;
 
+ // player
  ctx.fillStyle="#4CAF50";ctx.beginPath();ctx.arc(player.x,player.y,player.size,0,6.28);ctx.fill();
 
+ // tears
  bullets.forEach(b=>{
    if(b.type==="fire")ctx.fillStyle="orange";
    else if(b.type==="poison")ctx.fillStyle="green";
@@ -251,13 +271,16 @@ function draw(){
    ctx.beginPath();ctx.arc(b.x,b.y,4,0,6.28);ctx.fill();
  });
 
+ // enemies
  ctx.fillStyle="#f44";enemies.forEach(e=>{ctx.beginPath();ctx.arc(e.x,e.y,e.size,0,6.28);ctx.fill();});
 
+ // boss
  if(boss){
   ctx.fillStyle="#f00";ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();
   ctx.fillStyle="red";ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);
  }
 
+ // room item
  if(roomItem){ctx.fillStyle="white";ctx.font="30px Arial";ctx.fillText(roomItem.icon,roomItem.x-15,roomItem.y+10);}
  ctx.fillStyle="white";ctx.font="20px Arial";ctx.fillText("Items:",20,40);
  player.items.forEach((it,i)=>{ctx.fillText(it.icon,20+i*30,70);});
