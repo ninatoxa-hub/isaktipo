@@ -28,10 +28,7 @@ button,input{font-size:20px;padding:10px 20px}
 <script>
 /* ================= RNG (SEED) ================= */
 let SEED=Date.now();
-function rnd(){
- SEED=(SEED*9301+49297)%233280;
- return SEED/233280;
-}
+function rnd(){SEED=(SEED*9301+49297)%233280;return SEED/233280;}
 
 /* ================= CANVAS ================= */
 const canvas=document.getElementById("game");
@@ -47,16 +44,16 @@ const player={
  hp:6,maxHp:6,
  speed:2.2,damage:1,
  tearSpeed:6,
- mods:{multi:0,fire:0,poison:0},
- items:[]
+ items:[],
+ invuln:0
 };
 
 /* ================= ITEMS ================= */
 const ITEM_POOL=[
  {name:"Magic Mushroom",icon:"🍄",apply:()=>{player.maxHp++;player.hp++;player.damage++;player.size+=2}},
- {name:"Third Eye",icon:"👁️",apply:()=>player.mods.multi++},
- {name:"Burning Tear",icon:"🔥",apply:()=>player.mods.fire++},
- {name:"Poison Gland",icon:"☠️",apply:()=>player.mods.poison++},
+ {name:"Third Eye",icon:"👁️",apply:()=>player.items.push({name:"Third Eye",icon:"👁️"})},
+ {name:"Burning Tear",icon:"🔥",apply:()=>player.items.push({name:"Burning Tear",icon:"🔥"})},
+ {name:"Poison Gland",icon:"☠️",apply:()=>player.items.push({name:"Poison Gland",icon:"☠️"})},
  {name:"Wire Coat Hanger",icon:"⚡",apply:()=>player.tearSpeed++}
 ];
 
@@ -69,7 +66,8 @@ function startGame(){
  localStorage.removeItem("save");
  state="game";
  document.getElementById("menu").style.display="none";
- room=1;
+ roomX=3;roomY=3;room=1;
+ generateMap();
  spawnRoom();
 }
 
@@ -79,13 +77,26 @@ function continueGame(){
  Object.assign(player,JSON.parse(d));
  state="game";
  document.getElementById("menu").style.display="none";
- room=JSON.parse(localStorage.getItem("room"))||1;
+ roomX=parseInt(localStorage.getItem("roomX"))||3;
+ roomY=parseInt(localStorage.getItem("roomY"))||3;
+ room=parseInt(localStorage.getItem("room"))||1;
+ generateMap();
  spawnRoom();
+}
+
+/* ================= MAP ================= */
+const mapSize=7;
+let map=[],visitedMap=[];
+let roomX=3,roomY=3,room=1,MAX_ROOMS=6;
+
+function generateMap(){
+ map=Array.from({length:mapSize},()=>Array(mapSize).fill(0));
+ visitedMap=Array.from({length:mapSize},()=>Array(mapSize).fill(false));
+ map[roomY][roomX]=1;visitedMap[roomY][roomX]=true;
 }
 
 /* ================= ROOM ================= */
 let enemies=[],bullets=[],boss=null;
-let room=1,MAX_ROOMS=6;
 
 function spawnRoom(){
  enemies=[];bullets=[];boss=null;roomItem=null;
@@ -102,20 +113,29 @@ function spawnRoom(){
 }
 
 /* ================= INPUT ================= */
-const K={};
+const K={},M={x:0,y:0,down:false};
 addEventListener("keydown",e=>K[e.key.toLowerCase()]=true);
 addEventListener("keyup",e=>K[e.key.toLowerCase()]=false);
+canvas.addEventListener("mousemove",e=>{const r=canvas.getBoundingClientRect();M.x=e.clientX-r.left;M.y=e.clientY-r.top;});
+canvas.addEventListener("mousedown",e=>{if(e.button===0)M.down=true;});
+canvas.addEventListener("mouseup",e=>{if(e.button===0)M.down=false;});
 
 /* ================= SHOOT ================= */
+let shootCooldown=0;
 function shoot(dx,dy){
- let count=1+player.mods.multi;
- for(let i=0;i<count;i++)
-  bullets.push({x:player.x,y:player.y,dx:dx*player.tearSpeed,dy:dy*player.tearSpeed,life:60});
+ bullets.push({x:player.x,y:player.y,dx:dx*player.tearSpeed,dy:dy*player.tearSpeed,life:60});
+ shootCooldown=12; // уменьшенная скорострельность
 }
 
 /* ================= UPDATE ================= */
 function update(){
  if(state!=="game")return;
+
+ // Смерть игрока
+ if(player.hp<=0){alert("Вы умерли!");state="menu";document.getElementById("menu").style.display="flex";return;}
+
+ // Неуязвимость
+ if(player.invuln>0)player.invuln--;
 
  // Движение игрока
  if(K.w)player.y-=player.speed;
@@ -123,51 +143,57 @@ function update(){
  if(K.a)player.x-=player.speed;
  if(K.d)player.x+=player.speed;
 
- // Чит-коды
- if(K.z){room=MAX_ROOMS;spawnRoom();K.z=false;}
- if(K.x){player.damage+=100;player.items.push({name:'Cheat',icon:'💥'});K.x=false;}
+ // Ограничение по комнате
+player.x=Math.max(20,Math.min(W-20,player.x));
+player.y=Math.max(20,Math.min(H-20,player.y));
+
+ // Стрельба
+ if(shootCooldown>0)shootCooldown--;
+ if(M.down&&shootCooldown===0){
+  let dx=M.x-player.x;
+  let dy=M.y-player.y;
+  let dist=Math.hypot(dx,dy);
+  if(dist>0)shoot(dx/dist,dy/dist);
+ }
 
  // Двигаем врагов к игроку
  enemies.forEach(e=>{
-   const dx = player.x - e.x;
-   const dy = player.y - e.y;
-   const dist = Math.hypot(dx, dy);
-   if(dist>0){
-     e.x += dx/dist * e.speed;
-     e.y += dy/dist * e.speed;
+   const dx=player.x-e.x;
+   const dy=player.y-e.y;
+   const dist=Math.hypot(dx,dy);
+   if(dist>0){e.x+=dx/dist*e.speed;e.y+=dy/dist*e.speed;}
+   // Урон игроку
+   if(dist<player.size+e.size&&player.invuln===0){
+     player.hp--;player.invuln=60;
    }
  });
 
- // Проверка попаданий пуль по врагам и боссу
+ // Пули
+ bullets.forEach(b=>{b.x+=b.dx;b.y+=b.dy;b.life--;});
  bullets.forEach(b=>{
-  b.x+=b.dx;b.y+=b.dy;b.life--;
   enemies.forEach(e=>{
-   if(Math.hypot(b.x-e.x,b.y-e.y)<e.size){
-    e.hp-=player.damage;b.life=0;
-   }
+   if(Math.hypot(b.x-e.x,b.y-e.y)<e.size){e.hp-=player.damage;b.life=0;}
   });
-  if(boss&&Math.hypot(b.x-boss.x,b.y-boss.y)<boss.size){
-   boss.hp-=player.damage;b.life=0;
-  }
+  if(boss&&Math.hypot(b.x-boss.x,b.y-boss.y)<boss.size){boss.hp-=player.damage;b.life=0;}
  });
  bullets=bullets.filter(b=>b.life>0);
  enemies=enemies.filter(e=>e.hp>0);
 
- // Спавн предмета, если комната очищена
+ // Если комната пуста, показываем дверь
  if(!boss&&enemies.length===0&&!roomItem){
-  roomItem=ITEM_POOL[Math.floor(rnd()*ITEM_POOL.length)];
+  roomItem={x:450,y:300,size:16,icon:"🚪",name:"Door"};
  }
 
- // Подбор предмета
- if(roomItem&&Math.hypot(player.x-450,player.y-300)<20){
-  roomItem.apply();
-  player.items.push(roomItem);
-  room++;
-  spawnRoom();
+ // Вход в дверь
+ if(roomItem&&roomItem.name==="Door"&&Math.hypot(player.x-roomItem.x,player.y-roomItem.y)<30){
+  if(room<MAX_ROOMS){room++;roomX+=Math.floor(rnd()*3)-1;roomY+=Math.floor(rnd()*3)-1;spawnRoom();}
  }
+
+ // Подбор предметов (если предмет не дверь)
+ if(roomItem&&roomItem.name!=="Door"&&Math.hypot(player.x-450,player.y-300)<20){roomItem.apply();player.items.push(roomItem);roomItem=null;}
 
  // Победа над боссом
- if(boss&&boss.hp<=0){alert("ПОБЕДА!");state="menu";location.reload()}
+ if(boss&&boss.hp<=0){alert("ПОБЕДА!");state="menu";document.getElementById("menu").style.display="flex";}
 
  save();
 }
@@ -175,6 +201,8 @@ function update(){
 /* ================= SAVE ================= */
 function save(){
  localStorage.setItem("save",JSON.stringify(player));
+ localStorage.setItem("roomX",roomX);
+ localStorage.setItem("roomY",roomY);
  localStorage.setItem("room",room);
 }
 
@@ -197,28 +225,15 @@ function draw(){
  enemies.forEach(e=>{ctx.beginPath();ctx.arc(e.x,e.y,e.size,0,6.28);ctx.fill()});
 
  // Босс
- if(boss){
-  ctx.fillStyle="#f00";
-  ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();
-  // HP бар босса
-  ctx.fillStyle="red";
-  ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);
- }
+ if(boss){ctx.fillStyle="#f00";ctx.beginPath();ctx.arc(boss.x,boss.y,boss.size,0,6.28);ctx.fill();
+ ctx.fillStyle="red";ctx.fillRect(300,20,300*(boss.hp/boss.maxHp),12);}
 
- // Предмет
- if(roomItem){
-  ctx.fillStyle="white";
-  ctx.font="30px Arial";
-  ctx.fillText(roomItem.icon,440,300);
- }
+ // Предмет/дверь
+ if(roomItem){ctx.fillStyle="white";ctx.font="30px Arial";ctx.fillText(roomItem.icon,roomItem.x-15,roomItem.y+10);}
 
  // Панель предметов
- ctx.fillStyle="white";
- ctx.font="20px Arial";
- ctx.fillText("Items:",20,40);
- player.items.forEach((it,i)=>{
-  ctx.fillText(it.icon,20+i*30,70);
- });
+ ctx.fillStyle="white";ctx.font="20px Arial";ctx.fillText("Items:",20,40);
+ player.items.forEach((it,i)=>{ctx.fillText(it.icon,20+i*30,70);});
 }
 
 /* ================= GAME LOOP ================= */
